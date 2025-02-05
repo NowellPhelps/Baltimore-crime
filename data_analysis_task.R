@@ -304,7 +304,7 @@ p4 <- ggplot(data_plot, aes(x = factor(hour), y = rate, fill = mean_rate)) +
        fill = "Mean hourly crime rate") +
   
   theme(axis.text = element_text(size = 12), 
-        axis.title =element_text(size = 14)) 
+        axis.title =element_text(size = 14))
 
 
 ################################################################################
@@ -312,29 +312,82 @@ p4 <- ggplot(data_plot, aes(x = factor(hour), y = rate, fill = mean_rate)) +
 ################################################################################
 
 ################################################################################
-
-# Check if any hour day month year is missing:
-time_length(interval(start = min(data_subset$datetime), end = max(data_subset$datetime), tzone = tz(data_subset$datetime)), unit = "hour") + .5
-
-data_subset$year_month_day_hour <- floor_date(data_subset$datetime, unit = "hours", week_start = getOption("lubridate.week.start", 7))
-
-
-# Create outcome (hourly crime rate) dataset
-model_data2 <- data_subset %>%
-  group_by(year, month, day, hour) %>%
-  summarise(crime_rate = n()) %>% 
-  mutate(hour = factor(hour),
-         day = factor(day)) %>%
-  filter(!(day == ))
-
-
-# Model 0
-M0 <- lm(crime_rate ~ month + day + day:month, data = model_data)
-summary(M0)
-
 # Model 1
-M0 <- lm(crime_rate ~ month + day + day:month + District, data = model_data)
+M1 <- lm(rate ~ as.factor(hour) + month, data = rate_hour)
 summary(M1)
+extractAIC(M1)
 
-M2 <- lm(crime_rate ~ month + hour, data = model_data2)
+# Model 2
+M2 <- lm(rate ~ as.factor(hour) + month + month:as.factor(day), data = rate_hour)
 summary(M2)
+extractAIC(M2)
+
+
+# cross-validation
+data_train <- rate_hour[which(rate_hour$datetime <= as.POSIXct("2016-09-02")),]
+data_test  <- rate_hour[which(rate_hour$datetime > as.POSIXct("2016-09-02")),]
+  
+
+M0_train <- lm(rate ~ as.factor(hour) + month, data = data_test)
+M0_test <- predict(M0_train,data_test)
+
+help <- data.frame(y = data_test$rate, 
+                   ypred = M0_test) %>%
+  mutate(diff = (y - ypred)^2)
+
+sum(help$diff)/nrow(help)
+# 8.837995
+
+
+M1_train <- lm(rate ~ as.factor(hour) +  month + month:as.factor(day), data = data_test)
+M1_test <- predict(M1_train,data_test)
+
+help <- data.frame(y = data_test$rate, 
+                   ypred = M1_test) %>%
+  mutate(diff = (y - ypred)^2)
+
+sum(help$diff)/nrow(help)
+# 8.295335
+
+
+
+RMSE(M0_test,data_test$rate)
+
+
+# Plot fits for M1
+
+coef <- coef(M1)
+coef[["as.factor(hour)0"]] <- 0
+coef[["monthJan"]] <- 0
+months <- month.abb
+hour <- seq(0, 23)
+
+coeffs <- data.frame(month = rep(month.abb, each = 24),
+                    hour = rep(seq(0, 23), 12))
+
+coef_vec <- c()
+month_vec <- c()
+hour_vec <- c()
+for (month in months){
+  for (hour in seq(0,23)){
+    month_vec <- c(month_vec, month)
+    hour_vec <- c(hour_vec, hour)
+    coef_vec <-c(coef_vec, coef[["(Intercept)"]] + coef[[paste0("as.factor(hour)", hour)]] +coef[[paste0("month",month)]])
+  }
+}
+
+df <- data.frame(month = month_vec,
+                 hour = hour_vec,
+                 estimate = coef_vec)
+
+p <- ggplot(df, aes(x = hour, y = estimate)) +
+  facet_wrap(~factor(month, levels = month.abb)) +
+  geom_line() +
+  theme_bw()+
+  scale_x_continuous(breaks = c(0, 6, 12, 18),
+                 labels = c("12am", "6pm", "12pm", "6pm")) +
+  labs(x = "Hour of day", 
+       y = "Estimated hourly crime rate") 
+
+
+
