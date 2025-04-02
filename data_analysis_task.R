@@ -1,7 +1,7 @@
 ################################################################################
 # Analysis for Advanced Methods in Biostatistics III - 140.753.01.             #
 # Nowell Hollier Phelps                                                        #
-# February 2025                                                                #
+# April 2025.                                                                  #
 ################################################################################
 
 ################################################################################
@@ -11,9 +11,15 @@
 ################################################################################
 # Load libraries and set directory
 rm(list = ls())
-setwd("~/Desktop/Hopkins/Year 1/Methods/Term 3/Data analysis project/Code and data")
+setwd("~/Desktop/Hopkins/Year 1/Methods/Term 4/Baltimore-crime")
 library(lubridate)
 library(tidyverse)
+library(viridis)
+library(grid)
+library(gridExtra)
+
+outdir_folder <- "~/Desktop/Hopkins/Year 1/Methods/Term 4/Baltimore-crime/Figure/"
+dir.create(outdir_folder, showWarnings = F)
 
 ################################################################################
 # Data load and extract useful variables
@@ -61,7 +67,6 @@ duplicates <- data_subset %>% filter(Neighborhood == "Orchard Ridge",
 
 data_subset <- data_subset %>% filter(!(id %in% duplicates$id[2:55]))
 
-
 ################################################################################
 # Calculate rates by day and month
 
@@ -93,16 +98,16 @@ rate_hour <- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max
 
 # Convert NA to 0 (no crimes recorded in hour)
 rate_hour$count[which(is.na(rate_hour$count))] <- 0
-
-rate_hour <- rate_hour %>%
-  mutate(rate = count) %>%
-  filter(!(year == 2015 & month == "Apr" & day == 27))
+# 
+# rate_hour <- rate_hour %>%
+#   mutate(rate = count) %>%
+#   filter(!(year == 2015 & month == "Apr" & day == 27))
 
 # resent "days in month" in april 2015 to 29, to account for removal of April 27 2015
-rate_hour$days_in_month[which(rate_hour$month == "Apr" & rate_hour$year == 2015)] <- 29
+#rate_hour$days_in_month[which(rate_hour$month == "Apr" & rate_hour$year == 2015)] <- 29
 
 # Get rate by day - start with skeleton dataset, merge to count dataset, and set NA to 0 then calculate rate
-rate_day<- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max(data_subset$year_month_day_hour), by = 'day')) %>%
+rate_day <- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max(data_subset$year_month_day_hour), by = 'day')) %>%
   mutate(year = factor(year(datetime)),
          month = factor(month(datetime),
                         levels = seq(1, 12), 
@@ -115,12 +120,12 @@ rate_day<- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max(d
 # Convert NA to 0 (no crimes recorded in hour)
 rate_day$count[which(is.na(rate_hour$day))] <- 0
 
-rate_day <- rate_day %>%
-  mutate(rate = count) %>%
-  filter(!(year == 2015 & month == "Apr" & day == 27))
+# rate_day <- rate_day %>%
+#   mutate(rate = count) %>%
+#   filter(!(year == 2015 & month == "Apr" & day == 27))
 
 # resent "days in month" in april 2015 to 29, to account for removal of April 27 2015
-rate_day$days_in_month[which(rate_day$month == "Apr" & rate_day$year == 2015)] <- 29
+# rate_day$days_in_month[which(rate_day$month == "Apr" & rate_day$year == 2015)] <- 29
          
 
 ################################################################################
@@ -128,8 +133,7 @@ rate_day$days_in_month[which(rate_day$month == "Apr" & rate_day$year == 2015)] <
 ################################################################################
 
 ################################################################################
-# Figure 1 - Crime rate by day over entire period
-fig1 <- ggplot(data_subset %>% filter(!(year == 2015 & month == "Apr" & day == 27)), aes(x = datetime)) +
+fig1a <- ggplot(data_subset, aes(x = datetime)) +
   geom_histogram(stat = "bin", binwidth = 60*60*24, fill = "grey50", alpha = 0.8) +
   theme_classic() +
   scale_x_datetime(breaks = as.POSIXct(paste0(seq(2012, 2017), "-01-01 00:00:00")), 
@@ -138,10 +142,10 @@ fig1 <- ggplot(data_subset %>% filter(!(year == 2015 & month == "Apr" & day == 2
   scale_y_continuous(expand = expansion(0,0))+
   labs(x = "Date", 
        y = "Crime rate (crimes per day)",
-       title = "") +
+       title = "A") +
   theme(axis.text = element_text(size = 12), 
-        axis.title =element_text(size = 14))
-
+        axis.title =element_text(size = 14), 
+        title = element_text(size = 16))
 
 ################################################################################
 # Figure 2 - Average crime rate by year and month
@@ -153,34 +157,65 @@ data_plot <- rate_day %>%
   mutate(rate = tot_count/days_in_month) %>%
   filter(!(month == "Sep" & year == 2017))
 
-fig2 <- ggplot(data_plot, aes(x = month, y = rate, colour = year, group = year)) +
-  facet_wrap(~year)+
+fig1b <- ggplot(data_plot, aes(x = month, y = year, fill =rate)) +
+  geom_tile() +
+  scale_fill_viridis(breaks = c(100, 120, 140, 160), limits = c(90, 160),
+                     name = "Rate") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  labs(x = "Month",
+       y = "Crime rate (crimes per day)",
+       title = "B",
+       caption = "") +
+  theme(axis.text = element_text(size = 12), 
+        axis.title =element_text(size = 14), 
+        legend.title = element_text(size = 13),
+        title = element_text(size = 16)) 
+
+
+fig1c <- ggplot(data_plot, aes(x = month, y = rate, colour = year, group = year)) +
   geom_line() +
+  scale_colour_discrete(name = "Year") +
+  scale_fill_discrete(name = "Year") +
   geom_ribbon(aes(ymin = min, ymax = max, fill = year), alpha = 0.1, linetype = "dashed") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
   labs(x = "Month",
        y = "Crime rate (crimes per day)",
-       title = "", 
+       title = "C", 
        caption = "") +
   theme(axis.text = element_text(size = 12), 
-        axis.title =element_text(size = 14)) +
-  theme(legend.position = "none")
+        axis.title =element_text(size = 14), 
+        legend.title = element_text(size = 13),
+        title = element_text(size = 16)) 
 
 
-# Appendix Figure 1 - Average crime rate by year and month
-fig2b <- ggplot(data_plot, aes(x = year, y = rate, fill = year)) +
-  facet_wrap(~month)+
-  geom_col() +
-  geom_segment(aes(y = min, yend= max)) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
-  labs(x = "Month",
-       y = "Crime rate (crimes per day)",
-       title = "") +
-  theme(axis.text = element_text(size = 12), 
-        axis.title =element_text(size = 14))
 
+# PLOT FIGURE 1
+figNum <- 1
+appendix <- F
+figsuffix <- ""
+blank <- grid.rect(gp=gpar(col=NA, fill = NA))
+
+cairo_pdf(paste0(outdir_folder, ifelse(appendix, "Appendix Figure ", "Figure "), figNum, figsuffix,".pdf"), height = 8.5, width = 8.5, onefile=T)
+
+grid.arrange(
+  arrangeGrob(
+    blank,
+    arrangeGrob(blank,
+                fig1a,
+                blank,
+                fig1b,
+                blank,
+                nrow = 1, widths = c(.5, 10, .2, 10, .5)),
+    blank, 
+    arrangeGrob(blank, fig1c, blank, nrow = 1, widths = c(.5, 20., .5)), 
+    blank,
+    ncol = 1,
+    heights = c(1, 10, 1, 10, 1)
+  ))
+
+dev.off()
 
 ################################################################################
 # Figure 3 - Crime rate by month and day of month
@@ -290,7 +325,7 @@ data_mean_rate <- rate_hour %>%
             tot_count = sum(count)) %>%
   mutate(mean_rate = tot_count/tot_days)
 
-data_plot <- left_join(data_mean_rate,rate_hour, by = c("month", "hour"))
+data_plot <- left_join(data_mean_rate, rate_hour, by = c("month", "hour"))
 
 p4 <- ggplot(data_plot, aes(x = factor(hour), y = rate, fill = mean_rate)) +
   facet_wrap(~month) + 
@@ -305,6 +340,16 @@ p4 <- ggplot(data_plot, aes(x = factor(hour), y = rate, fill = mean_rate)) +
   
   theme(axis.text = element_text(size = 12), 
         axis.title =element_text(size = 14))
+
+
+
+
+
+
+
+
+
+
 
 
 ################################################################################
