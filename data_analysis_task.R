@@ -44,7 +44,6 @@ data_subset$day <- day(data_subset$datetime)
 data_subset$days_in_month <- lubridate::days_in_month(data_subset$datetime)
 data_subset$weekday <- wday(data_subset$datetime, label = T)
 
-
 # Classify crime as violent or non-violent
 violent_crime_types <- c("AGG. ASSAULT", "ASSAULT BY THREAT", "COMMON ASSAULT", "HOMICIDE", "RAPE", "SHOOTING")
 data_subset$crime_violent <- ifelse(data_subset$Description %in% violent_crime_types, "violent", "not violent")
@@ -90,6 +89,16 @@ count_day <- data_subset %>%
   summarise(count = n()) %>%
   ungroup()
 
+count_hour_stratified <- data_subset %>%
+  group_by(year, month, day, hour, crime_violent) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+count_day_stratified  <- data_subset %>%
+  group_by(year, month, day, crime_violent) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
 # Get rate by hour - start with skeleton dataset, merge to count dataset, and set NA to 0 then calculate rate
 rate_hour <- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max(data_subset$year_month_day_hour), by = 'hour')) %>%
   mutate(year = factor(year(datetime)),
@@ -118,6 +127,34 @@ rate_day <- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max(
 
 # Convert NA to 0 (no crimes recorded in hour)
 rate_day$count[which(is.na(rate_hour$day))] <- 0
+
+# Do same for stratified counts
+rate_hour_stratified <- data.frame(datetime = rep(seq(min(data_subset$year_month_day_hour), max(data_subset$year_month_day_hour), by = 'hour'), 2),
+                                   crime_violent = rep(c("not violent", "violent"), each = length(seq(min(data_subset$year_month_day_hour), max(data_subset$year_month_day_hour), by = 'hour')))) %>%
+  mutate(year = factor(year(datetime)),
+         month = factor(month(datetime),
+                        levels = seq(1, 12), 
+                        labels = month.abb),
+         day = day(datetime),
+         weekday  = wday(datetime),
+         hour = hour(datetime),
+         days_in_month = lubridate::days_in_month(datetime)) %>%
+  left_join(count_hour_stratified)
+
+rate_hour_stratified$count[which(is.na(rate_hour_stratified$count))] <- 0
+
+rate_day_stratified <- data.frame(datetime = seq(min(data_subset$year_month_day_hour), max(data_subset$year_month_day_hour), by = 'day')) %>%
+  mutate(year = factor(year(datetime)),
+         month = factor(month(datetime),
+                        levels = seq(1, 12), 
+                        labels = month.abb),
+         day = day(datetime),
+         weekday  = wday(datetime),
+         days_in_month = days_in_month(datetime)) %>%
+  left_join(count_day_stratified)
+
+# Convert NA to 0 (no crimes recorded in hour)
+rate_day_stratified$count[which(is.na(rate_day_stratified$day))] <- 0
 
 ################################################################################
 # EXPLORATORY DATA ANALYSIS                                                    #
@@ -406,7 +443,6 @@ fig5 <- ggplot(data_plot, aes(x = day, y = count, colour = year_ind, group = yea
   geom_line(alpha = 0.7) +
   theme_classic()
 
-# PLOT FIGURE 1
 figNum <- 5
 appendix <- F
 figsuffix <- ""
@@ -421,6 +457,81 @@ grid.arrange(
     blank,
     heights = c(1, 10, 1)
   ))
+
+dev.off()
+
+
+################################################################################
+# Figure 6 - Trends in violent crime by hour
+data_plot_line <- rate_hour_stratified %>%
+  mutate(crime_violent = ifelse(crime_violent == "not violent", "not_violent", crime_violent)) %>%
+  pivot_wider(values_from = "count", names_from = "crime_violent") %>%
+  mutate(prop_violent = violent/(violent+ not_violent)) %>%
+  group_by(hour) %>%
+  summarise(mean_prop_violent = mean(prop_violent, na.rm = T), 
+            mean_violent = mean(violent), 
+            mean_not_violent = mean(not_violent)) %>%
+  ungroup()
+
+data_plot_points <- rate_hour_stratified %>%
+  mutate(crime_violent = ifelse(crime_violent == "not violent", "not_violent", crime_violent)) %>%
+  pivot_wider(values_from = "count", names_from = "crime_violent") %>%
+  mutate(prop_violent = violent/(violent+ not_violent))
+  
+p <- ggplot(data_plot_points, aes(x = factor(hour), y = prop_violent*100)) + 
+  geom_violin(alpha = 0.8, colour = "grey90", ) +
+  geom_line(data = data_plot_line, inherit.aes = F, aes(y = mean_prop_violent*100, x = hour + 1), colour = "red")+
+  theme_classic() +
+  scale_x_discrete(breaks = c(0, 3, 6, 9, 12, 15, 18, 21),
+                 labels = c("12am", "3am", "6am","9am", "12pm", "3pm", "6pm","9pm")) +
+  labs(y = "Proportion of crimes which are violent (%)",
+       x = "Hour of day")
+
+
+p6a <- ggplot(data_plot, aes(x = hour, y = rate, colour = type)) + 
+  geom_line() +
+  scale_x_continuous(breaks = c(0, 3, 6, 9, 12, 15, 18, 21),
+                     labels = c("12am", "3am", "6am","9am", "12pm", "3pm", "6pm","9pm")) +
+  theme_classic() +
+  labs(y = "Mean crime rate (crimes per hour)",
+       x = "Hour of day")
+
+
+p6b <- ggplot(data = rate_hour_stratified, aes(y = count, x = factor(hour), group = paste0(hour, crime_violent), fill = crime_violent)) +
+  scale_fill_discrete(name = "Crime type")+
+  scale_x_discrete(breaks = c(0, 3, 6, 9, 12, 15, 18, 21),
+                     labels = c("12am", "3am", "6am","9am", "12pm", "3pm", "6pm","9pm")) +
+  geom_boxplot(outlier.alpha = 0.9, outlier.colour ="grey90") +
+  theme_classic() +
+  labs(y = "Crime rate (crimes per hour)",
+       x = "Hour of day")
+
+data_plot <- data_plot_line %>% 
+  select(-mean_prop_violent) %>%
+  pivot_longer(cols = c(mean_violent, mean_not_violent), names_to = "type", values_to = "rate")
+  
+
+figNum <- 6
+appendix <- F
+figsuffix <- ""
+blank <- grid.rect(gp=gpar(col=NA, fill = NA))
+
+cairo_pdf(paste0(outdir_folder, ifelse(appendix, "Appendix Figure ", "Figure "), figNum, figsuffix,".pdf"), height = 6.375, width = 15, onefile=T)
+
+grid.arrange(
+  arrangeGrob(blank,
+              arrangeGrob(
+                arrangeGrob(textGrob("A",hjust=0,just = c("left"),x = unit(0.2, "npc"),gp = gpar(col = "black", fontsize = 20)), blank, ncol = 1, heights = c(1, 20)),
+                p6a, 
+                arrangeGrob(textGrob("B",hjust=0,just = c("left"),x = unit(0.2, "npc"),gp = gpar(col = "black", fontsize = 20)), blank, ncol = 1, heights = c(1, 20)),
+                p6b, 
+                blank, 
+                nrow =1, 
+                widths = c(1, 10, 1, 10, 1)),
+              blank,
+              ncol = 1,
+              heights = c(1, 10, 1))
+)
 
 dev.off()
 
@@ -508,6 +619,7 @@ p <- ggplot(df, aes(x = hour, y = estimate)) +
                  labels = c("12am", "6pm", "12pm", "6pm")) +
   labs(x = "Hour of day", 
        y = "Estimated hourly crime rate") 
+
 
 
 
